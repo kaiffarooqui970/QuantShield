@@ -1,0 +1,22 @@
+# Environment secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+
+# Docker build artifacts
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
