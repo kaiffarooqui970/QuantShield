@@ -13,6 +13,8 @@ import ReturnHistogram from "@/components/ReturnHistogram";
 import SectorExposure from "@/components/SectorExposure";
 import ExportPanel from "@/components/ExportPanel";
 import RollingMetrics from "@/components/RollingMetrics";
+import TierGate from "@/components/TierGate";
+import { useAuth } from "@/lib/auth-context";
 
 // ─── Count-up animation hook ──────────────────────────────────────────────────
 function useCountUp(target: number, duration = 900): number {
@@ -258,6 +260,7 @@ function MetricCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function PortfolioSimulator() {
+  const { user, tier, getToken } = useAuth();
   const [tickers, setTickers] = useState("AAPL, MSFT, NVDA");
   const [assets, setAssets] = useState<Asset[]>(equalWeights(["AAPL", "MSFT", "NVDA"]));
   const [model, setModel] = useState<"gbm" | "student_t">("gbm");
@@ -270,8 +273,21 @@ export default function PortfolioSimulator() {
   const [progress, setProgress] = useState(0);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
-  const [activeTab, setActiveTab] = useState<"simulate" | "stress" | "frontier" | "backtest">("simulate");
+  const [activeTab, setActiveTab] = useState<"simulate" | "stress" | "frontier" | "backtest" | "advanced">("simulate");
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Authenticated fetch — injects Bearer token automatically
+  const apiFetch = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = await getToken();
+    return fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers ?? {}),
+      },
+    });
+  }, [getToken]);
 
   // Keep assets in sync when ticker string changes
   const handleTickerChange = useCallback((raw: string) => {
@@ -331,6 +347,10 @@ export default function PortfolioSimulator() {
 
   const handleRunSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      setError("Please sign in to run simulations. Click 'Get Started' to create a free account.");
+      return;
+    }
     setIsLoading(true);
     setError(null);
     setResults(null);
@@ -348,9 +368,8 @@ export default function PortfolioSimulator() {
       student_t_df: 5,
     };
     try {
-      const response = await fetch("http://localhost:8000/api/simulate", {
+      const response = await apiFetch("http://localhost:8000/api/simulate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
@@ -453,7 +472,7 @@ export default function PortfolioSimulator() {
         {/* ── AI Hero CTA ── */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 pb-6">
           <button
-            onClick={() => setCopilotOpen(true)}
+            onClick={() => tier === "free" ? window.location.href = "/settings#upgrade" : setCopilotOpen(true)}
             className="group relative w-full overflow-hidden rounded-2xl px-6 py-4 flex items-center justify-between transition-all duration-300 hover:scale-[1.01]"
             style={{
               background: "linear-gradient(135deg, rgba(6,182,212,0.08) 0%, rgba(139,92,246,0.08) 50%, rgba(59,130,246,0.08) 100%)",
@@ -520,10 +539,11 @@ export default function PortfolioSimulator() {
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
             {([
-              { id: "simulate",  label: "Simulate",       icon: "⚡" },
-              { id: "stress",    label: "Stress Test",    icon: "💥" },
-              { id: "frontier",  label: "Frontier",       icon: "📈" },
-              { id: "backtest",  label: "Backtest",       icon: "📅" },
+              { id: "simulate",  label: "Simulate",          icon: "⚡" },
+              { id: "stress",    label: "Stress Test",       icon: "💥" },
+              { id: "frontier",  label: "Frontier",          icon: "📈" },
+              { id: "backtest",  label: "Backtest",          icon: "📅" },
+              { id: "advanced",  label: "Advanced",          icon: "🔬" },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -745,6 +765,17 @@ export default function PortfolioSimulator() {
                   initialValue={initialValue}
                   apiBaseUrl="http://localhost:8000"
                 />
+              )}
+              {activeTab === "advanced" && (
+                <TierGate requiredTier="enterprise" feature="Advanced Analytics">
+                  <div className="rounded-3xl border p-8 flex flex-col items-center justify-center min-h-[300px] gap-3"
+                    style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(139,92,246,0.2)" }}>
+                    <p className="text-slate-300 font-semibold">Advanced Analytics</p>
+                    <p className="text-slate-500 text-sm text-center max-w-sm">
+                      Alpha, Treynor Ratio, Rolling Sharpe, Position VaR, Crash Survival Probability, Regime Badge
+                    </p>
+                  </div>
+                </TierGate>
               )}
               {/* ── Simulate tab content ── */}
               {activeTab === "simulate" && <>
@@ -968,34 +999,20 @@ export default function PortfolioSimulator() {
                       value={`${results.metrics.max_drawdown}%`}
                       sub="Peak-to-trough decline"
                     />
-                    {isDemo ? (
-                      <LockedCard>
-                        <MetricCard
-                          label="VaR 95%" icon={<ShieldIcon />} accent="#f97316"
-                          value="$312" sub="1-day 95% confidence loss"
-                        />
-                      </LockedCard>
-                    ) : (
+                    <TierGate requiredTier="pro" feature="VaR 95%">
                       <MetricCard
                         label="VaR 95%" icon={<ShieldIcon />} accent="#f97316"
                         value={fmt(Math.abs(results.metrics.var_95))}
                         sub="1-day 95% confidence loss"
                       />
-                    )}
-                    {isDemo ? (
-                      <LockedCard>
-                        <MetricCard
-                          label="CVaR 95%" icon={<AlertIcon />} accent="#ef4444"
-                          value="$447" sub="Expected shortfall tail"
-                        />
-                      </LockedCard>
-                    ) : (
+                    </TierGate>
+                    <TierGate requiredTier="pro" feature="CVaR 95%">
                       <MetricCard
                         label="CVaR 95%" icon={<AlertIcon />} accent="#ef4444"
                         value={fmt(Math.abs(results.metrics.cvar_95))}
                         sub="Expected shortfall tail"
                       />
-                    )}
+                    </TierGate>
                     <MetricCard
                       label="Median Final" icon={<DollarIcon />} accent="#10b981"
                       value={fmt(results.metrics.median_final_value)}
@@ -1046,7 +1063,9 @@ export default function PortfolioSimulator() {
 
                   {/* ── Correlation Heatmap ── */}
                   {results.correlation_matrix && Object.keys(results.correlation_matrix).length > 1 && (
-                    <CorrelationHeatmap matrix={results.correlation_matrix as Record<string, Record<string, number>>} />
+                    <TierGate requiredTier="pro" feature="Correlation Heatmap">
+                      <CorrelationHeatmap matrix={results.correlation_matrix as Record<string, Record<string, number>>} />
+                    </TierGate>
                   )}
 
                   {/* ── Sector Exposure ── */}
@@ -1056,11 +1075,11 @@ export default function PortfolioSimulator() {
                   />
 
                   {/* ── Export ── */}
-                  {!isDemo && (
+                  <TierGate requiredTier="pro" feature="PDF Export">
                     <div className="flex justify-end">
                       <ExportPanel results={results as any} days={days} sims={sims} model={model} />
                     </div>
-                  )}
+                  </TierGate>
 
                   {/* ── Conversion CTA (demo only) ── */}
                   {isDemo && (

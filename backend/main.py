@@ -37,10 +37,23 @@ _logger = logging.getLogger("quantshield")
 _logger.addFilter(_ScrubFilter())
 
 # ─── API Keys (env only — never hardcoded) ────────────────────────────────────
-GROQ_API_KEY: str        = os.environ["GROQ_API_KEY"]
-ELEVENLABS_API_KEY: str  = os.environ.get("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
-INTERNAL_SECRET: str     = os.environ.get("INTERNAL_API_SECRET", "")
+GROQ_API_KEY: str           = os.environ["GROQ_API_KEY"]
+ELEVENLABS_API_KEY: str     = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE_ID: str    = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
+INTERNAL_SECRET: str        = os.environ.get("INTERNAL_API_SECRET", "")
+STRIPE_SECRET_KEY: str      = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET: str  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRO_PRICE_ID: str    = os.environ.get("STRIPE_PRO_PRICE_ID", "")
+STRIPE_ENT_PRICE_ID: str    = os.environ.get("STRIPE_ENTERPRISE_PRICE_ID", "")
+SITE_URL: str               = os.environ.get("SITE_URL", "http://localhost:3000")
+
+# ─── Stripe client ────────────────────────────────────────────────────────────
+import stripe as stripe_lib
+if STRIPE_SECRET_KEY:
+    stripe_lib.api_key = STRIPE_SECRET_KEY
+
+# ─── Supabase auth ────────────────────────────────────────────────────────────
+from auth import get_auth, auth_from_api_key, AuthInfo, check_and_increment_sim_usage, generate_api_key
 
 # ─── Groq Client ──────────────────────────────────────────────────────────────
 from groq import Groq
@@ -238,9 +251,20 @@ async def health():
 async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_verify_token)):
     """Run Monte Carlo GBM portfolio risk simulation."""
     _check_rate(request.client.host, "simulate", limit=10, window=60)
+
+    # ── Supabase auth + tier check ─────────────────────────────────────────────
+    auth = await auth_from_api_key(request)
+    auth.require_auth()
+
+    if auth.tier == "free":
+        # Enforce 3 simulations/day hard limit server-side
+        await check_and_increment_sim_usage(auth.user_id)
+        # Free tier capped at 30 days
+        req.simulation_days = min(req.simulation_days, 30)
+        req.n_simulations = min(req.n_simulations, 1000)
+
     from engine import run_monte_carlo
 
-    # Fix: Only validate weights if they actually contain data
     if req.weights and len(req.weights) > 0:
         if len(req.weights) != len(req.tickers):
             raise HTTPException(
@@ -248,7 +272,6 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
                 detail=f"weights length ({len(req.weights)}) must match tickers length ({len(req.tickers)})"
             )
     else:
-        # If weights are empty, set them to None so the calculation engine defaults to equal weighting
         req.weights = None
 
     try:
@@ -261,6 +284,11 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
             model=req.model,
             student_t_df=req.student_t_df,
         )
+        # Strip CVaR / Sortino for free tier (returned blurred via TierGate on frontend)
+        if auth.tier == "free":
+            result["metrics"].pop("cvar_95", None)
+            result["metrics"].pop("cvar_99", None)
+            result["metrics"].pop("sortino_ratio", None)
         return SimulationResponse(**result)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -729,3 +757,109 @@ async def _fetch_ticker_news(ticker: str) -> str:
     except Exception:
         pass
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ─── Stripe Checkout & Webhook ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CheckoutRequest(BaseModel):
+    price_id: str
+
+
+@app.post("/api/stripe/checkout")
+async def create_checkout_session(req: CheckoutRequest, request: Request):
+    """Create a Stripe Checkout session and return the redirect URL."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Stripe is not configured.")
+
+    auth = await get_auth(request)
+    auth.require_auth()
+
+    if req.price_id not in (STRIPE_PRO_PRICE_ID, STRIPE_ENT_PRICE_ID):
+        raise HTTPException(status_code=400, detail="Invalid price ID.")
+
+    try:
+        session = stripe_lib.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{"price": req.price_id, "quantity": 1}],
+            mode="subscription",
+            customer_email=auth.user_id,   # supabase user_id used as metadata
+            metadata={"supabase_user_id": auth.user_id},
+            success_url=f"{SITE_URL}/settings?payment=success",
+            cancel_url=f"{SITE_URL}/settings?payment=cancel",
+        )
+        return {"url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e}")
+
+
+@app.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Receive Stripe webhook events and update user tier in Supabase."""
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Stripe webhook secret not configured.")
+
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    try:
+        event = stripe_lib.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload.")
+    except stripe_lib.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature.")
+
+    from auth import _get_supabase
+    supabase = _get_supabase()
+
+    event_type = event["type"]
+
+    if event_type == "checkout.session.completed":
+        session = event["data"]["object"]
+        user_id = session.get("metadata", {}).get("supabase_user_id")
+        price_id = None
+        # Fetch line items to determine which plan was bought
+        try:
+            items = stripe_lib.checkout.Session.list_line_items(session["id"])
+            price_id = items.data[0].price.id if items.data else None
+        except Exception:
+            pass
+
+        if user_id and price_id:
+            tier = "pro" if price_id == STRIPE_PRO_PRICE_ID else "enterprise"
+            supabase.table("profiles").update({"tier": tier}).eq("id", user_id).execute()
+            stripe_customer_id = session.get("customer")
+            subscription_id = session.get("subscription")
+            supabase.table("profiles").update({
+                "stripe_customer_id": stripe_customer_id,
+                "stripe_subscription_id": subscription_id,
+            }).eq("id", user_id).execute()
+
+    elif event_type in ("customer.subscription.deleted",):
+        subscription = event["data"]["object"]
+        customer_id = subscription.get("customer")
+        if customer_id:
+            supabase.table("profiles").update({"tier": "free"}).eq("stripe_customer_id", customer_id).execute()
+
+    elif event_type == "customer.subscription.updated":
+        subscription = event["data"]["object"]
+        customer_id = subscription.get("customer")
+        status = subscription.get("status")
+        if customer_id and status not in ("active", "trialing"):
+            supabase.table("profiles").update({"tier": "free"}).eq("stripe_customer_id", customer_id).execute()
+
+    return {"received": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ─── Settings: Enterprise API Key ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/settings/api-key")
+async def create_api_key(request: Request):
+    """Generate (or regenerate) an API key for Enterprise users."""
+    auth = await get_auth(request)
+    auth.require_tier("enterprise")
+    key = await generate_api_key(auth.user_id)
+    return {"api_key": key}
