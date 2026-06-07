@@ -54,6 +54,7 @@ if STRIPE_SECRET_KEY:
 
 # ─── Supabase auth ────────────────────────────────────────────────────────────
 from auth import get_auth, auth_from_api_key, AuthInfo, check_and_increment_sim_usage, generate_api_key
+from validate import router as validate_router
 
 # ─── Groq Client ──────────────────────────────────────────────────────────────
 from groq import Groq
@@ -128,6 +129,8 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-QuantShield-Token", "Accept", "Cache-Control", "Authorization"],
     expose_headers=["Content-Type", "X-Accel-Buffering"],
 )
+
+app.include_router(validate_router)
 
 # ─── Pydantic Schemas ─────────────────────────────────────────────────────────
 
@@ -253,14 +256,17 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
     """Run Monte Carlo GBM portfolio risk simulation."""
     _check_rate(request.client.host, "simulate", limit=10, window=60)
 
-    # ── Supabase auth + tier check ─────────────────────────────────────────────
+    # ── Auth + tier — anonymous guests allowed for one free baseline run ─────────
     auth = await auth_from_api_key(request)
-    auth.require_auth()
 
-    if auth.tier == "free":
+    if not auth.authenticated:
+        # Guest: no usage tracking; IP rate-limit (above) is the only guard.
+        req.simulation_days = min(req.simulation_days, 252)
+        req.n_simulations   = min(req.n_simulations, 500)
+    elif auth.tier == "free":
         await check_and_increment_sim_usage(auth.user_id, auth.email or "")
-        req.simulation_days = min(req.simulation_days, 30)
-        req.n_simulations = min(req.n_simulations, 1000)
+        req.simulation_days = min(req.simulation_days, 252)
+        req.n_simulations   = min(req.n_simulations, 1000)
 
     from engine import run_monte_carlo
 
@@ -283,8 +289,8 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
             model=req.model,
             student_t_df=req.student_t_df,
         )
-        # Strip CVaR / Sortino for free tier (returned blurred via TierGate on frontend)
-        if auth.tier == "free":
+        # Strip CVaR / Sortino for free-tier and anonymous users
+        if not auth.authenticated or auth.tier == "free":
             result["metrics"].pop("cvar_95", None)
             result["metrics"].pop("cvar_99", None)
             result["metrics"].pop("sortino_ratio", None)

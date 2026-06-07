@@ -8,6 +8,8 @@ import StressTester from "@/components/StressTester";
 import EfficientFrontier from "@/components/EfficientFrontier";
 import Backtester from "@/components/Backtester";
 import WeightEditor, { equalWeights, normalizeAssets, type Asset } from "@/components/WeightEditor";
+import PortfolioImport from "@/components/portfolio/PortfolioImport";
+import Disclaimer from "@/components/ui/Disclaimer";
 import PortfolioManager, { saveRunToHistory, type SavedPortfolio } from "@/components/PortfolioManager";
 import CorrelationHeatmap from "@/components/CorrelationHeatmap";
 import ReturnHistogram from "@/components/ReturnHistogram";
@@ -292,12 +294,28 @@ function AppContent() {
     return () => { if (progressRef.current) clearInterval(progressRef.current); };
   }, [isLoading, results]);
 
+  const ANON_KEY = "qs_anon_used";
+
+  // Ref so triggerAnalyze always calls the latest handleRunSimulation
+  const runSimRef = useRef<((e: React.FormEvent) => Promise<void>) | null>(null);
+
+  const triggerAnalyze = useCallback(() => {
+    runSimRef.current?.({ preventDefault: () => {} } as React.FormEvent);
+  }, []);
+
   const handleRunSimulation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (authLoading) return; // wait for session to resolve
+    runSimRef.current = handleRunSimulation;
+    if (authLoading) return;
+
+    // Anonymous users get one free baseline run tracked in localStorage
     if (!user) {
-      setError("__auth__"); // special sentinel — renders sign-in CTA, not a text error
-      return;
+      const used = typeof window !== "undefined" && localStorage.getItem(ANON_KEY);
+      if (used) {
+        setError("__auth__"); // sentinel — renders sign-up CTA
+        return;
+      }
+      // First anonymous run — proceed, mark after success below
     }
     setIsLoading(true); setError(null); setResults(null); setIsDemo(false);
     const normalised = normalizeAssets(assets);
@@ -318,6 +336,8 @@ function AppContent() {
       }
       const data: SimResult = await res.json();
       setResults(data);
+      // Mark anonymous run so subsequent attempts show the sign-up CTA
+      if (!user) localStorage.setItem(ANON_KEY, "1");
       const step = Math.max(1, Math.floor(data.paths.median.length / 50));
       saveRunToHistory({
         name: cleanTickers.join(", "), tickers: cleanTickers, weights: cleanWeights, model,
@@ -410,23 +430,18 @@ function AppContent() {
                 <p style={{ fontSize: 12, color: "var(--qs-text-3)", margin: 0 }}>Configure your portfolio</p>
               </div>
 
+              {/* Portfolio import — Paste / CSV / Manual */}
+              <div style={{ marginBottom: 4 }}>
+                <PortfolioImport
+                  assets={assets}
+                  onChange={setAssets}
+                  tickers={tickers}
+                  onTickersChange={handleTickerChange}
+                  onAutoAnalyze={triggerAnalyze}
+                />
+              </div>
+
               <form onSubmit={handleRunSimulation} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Tickers */}
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--qs-text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
-                    Asset Tickers
-                  </label>
-                  <input
-                    type="text" value={tickers} required
-                    onChange={e => handleTickerChange(e.target.value)}
-                    placeholder="AAPL, MSFT, NVDA, BTC-USD"
-                    className={inputCls} onFocus={inputFocus} onBlur={inputBlur}
-                  />
-                  <p style={{ fontSize: 11, color: "var(--qs-text-3)", marginTop: 4 }}>NYSE / NASDAQ / Crypto</p>
-                  <div style={{ marginTop: 10 }}>
-                    <WeightEditor assets={assets} onChange={setAssets} />
-                  </div>
-                </div>
 
                 {/* Days + Sims */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -586,9 +601,11 @@ function AppContent() {
                       display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
                     }}>
                       <div>
-                        <p style={{ fontSize: 14, fontWeight: 600, color: "var(--qs-text)", margin: "0 0 4px" }}>Sign in to run simulations</p>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: "var(--qs-text)", margin: "0 0 4px" }}>
+                          You&apos;ve used your free analysis
+                        </p>
                         <p style={{ fontSize: 12, color: "var(--qs-text-2)", margin: 0 }}>
-                          Create a free account to run up to 3 simulations per day. No credit card required.
+                          Create a free account to run up to 3 simulations per day, save portfolios, and track history. No credit card required.
                         </p>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -604,7 +621,7 @@ function AppContent() {
                           color: "white", background: "var(--qs-accent)", textDecoration: "none",
                           boxShadow: "0 1px 8px rgba(94,106,210,0.3)",
                         }}>
-                          Get started free
+                          Get started free →
                         </a>
                       </div>
                     </div>
@@ -693,6 +710,34 @@ function AppContent() {
                   {/* Results */}
                   {results && !isLoading && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+                      {/* Anonymous post-run upsell banner */}
+                      {!user && !isDemo && (
+                        <div style={{
+                          borderRadius: 9, border: "1px solid rgba(94,106,210,0.3)", padding: "12px 16px",
+                          background: "rgba(94,106,210,0.08)",
+                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+                        }}>
+                          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", margin: 0 }}>
+                            <strong style={{ color: "rgba(255,255,255,0.85)" }}>Free analysis used.</strong>{" "}
+                            Sign up to save this portfolio, run unlimited analyses, and unlock CVaR, Sortino &amp; AI Copilot.
+                          </p>
+                          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                            <a href="/login" style={{
+                              padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+                              color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.12)",
+                              textDecoration: "none",
+                            }}>Sign in</a>
+                            <a href="/register" style={{
+                              padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              color: "white", background: "var(--qs-accent)", textDecoration: "none",
+                            }}>Create free account →</a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Non-advice disclaimer */}
+                      <Disclaimer compact />
 
                       {/* Demo banner */}
                       {isDemo && (
