@@ -42,7 +42,7 @@ const METRIC_TIPS: Record<string, string> = {
   "Expected Return":   "Annualised return predicted by GBM drift, based on 2 years of daily price history.",
   "Annual Volatility": "Annualised standard deviation of daily returns. Higher = more price uncertainty.",
   "Sharpe Ratio":      "Return earned per unit of risk (vs 5.25% risk-free rate). >1 is good; >2 is excellent.",
-  "Max Drawdown":      "Largest peak-to-trough decline across all simulated paths. Worst-case loss scenario.",
+  "Max Drawdown":      "Median peak-to-trough decline across individual simulation paths. Hover the card for the full distribution (mean / worst-5% / worst-case).",
   "VaR 95%":           "Value-at-Risk: the dollar loss you'd expect not to exceed on 95% of trading days.",
   "CVaR 95%":          "Conditional VaR (Expected Shortfall): the average loss in the worst 5% of scenarios.",
   "Median Final":      "The 50th-percentile portfolio value at the end of the simulation horizon.",
@@ -98,10 +98,13 @@ interface Metrics {
   annual_volatility: number;
   sharpe_ratio: number;
   sortino_ratio?: number;
-  max_drawdown: number;
+  max_drawdown: number;        // median per-path drawdown
+  max_drawdown_mean?: number;
+  max_drawdown_p95?: number;   // worst 5 % of paths
+  max_drawdown_worst?: number;
   var_95: number;
   var_99?: number;
-  cvar_95: number;
+  cvar_95?: number;
   cvar_99?: number;
   median_final_value: number;
   p5_final_value: number;
@@ -156,7 +159,7 @@ const DEMO_RESULT = {
   tickers: ["AAPL", "MSFT", "NVDA"],
   metrics: {
     expected_annual_return: 18.4, annual_volatility: 24.7, sharpe_ratio: 0.71,
-    sortino_ratio: 1.02, max_drawdown: -27.3, var_95: -312, var_99: -441,
+    sortino_ratio: 1.02, max_drawdown: -27.3, max_drawdown_worst: -48.6, var_95: -312, var_99: -441,
     cvar_95: -447, cvar_99: -623,
     median_final_value: Math.round(DEMO_PATHS.median[100]),
     p5_final_value: Math.round(DEMO_PATHS.p5[100]),
@@ -229,7 +232,9 @@ const TAB_LABELS: Record<string, string> = {
 // ─── Main app ─────────────────────────────────────────────────────────────────
 function AppContent() {
   const searchParams = useSearchParams();
-  const activeTab = (searchParams.get("tab") ?? "simulate") as keyof typeof TAB_LABELS;
+  // Normalise tab param: "analytics" is a common alias for "advanced"
+  const rawTab = searchParams.get("tab") ?? "simulate";
+  const activeTab = (rawTab === "analytics" ? "advanced" : rawTab) as keyof typeof TAB_LABELS;
   const { user, tier, loading: authLoading, getToken } = useAuth();
 
   const [tickers, setTickers]           = useState("AAPL, MSFT, NVDA");
@@ -238,6 +243,7 @@ function AppContent() {
   const [days, setDays]                 = useState(252);
   const [sims, setSims]                 = useState(20000);
   const [initialValue, setInitialValue] = useState(10000);
+  const [rngSeed, setRngSeed]           = useState<string>("");
   const [isLoading, setIsLoading]       = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [results, setResults]           = useState<SimResult | null>(null);
@@ -321,10 +327,12 @@ function AppContent() {
     const normalised = normalizeAssets(assets);
     const cleanTickers = normalised.map(a => a.ticker);
     const cleanWeights = normalised.map(a => a.weight / 100);
+    const parsedSeed = rngSeed.trim() !== "" ? parseInt(rngSeed, 10) : undefined;
     const payload = {
       tickers: cleanTickers, weights: cleanWeights,
       simulation_days: Number(days), n_simulations: Number(sims),
       initial_portfolio_value: Number(initialValue), model, student_t_df: 5,
+      ...(parsedSeed != null && !isNaN(parsedSeed) ? { rng_seed: parsedSeed } : {}),
     };
     try {
       const res = await apiFetch("/backend/api/simulate", { method: "POST", body: JSON.stringify(payload) });
@@ -497,6 +505,23 @@ function AppContent() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Seed (optional) */}
+                <div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--qs-text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+                    Seed <span style={{ fontWeight: 400, textTransform: "none", opacity: 0.5 }}>(optional — for reproducible runs)</span>
+                  </label>
+                  <input
+                    type="number" min={0} max={2147483647} placeholder="Leave blank for random"
+                    value={rngSeed}
+                    onChange={e => setRngSeed(e.target.value)}
+                    style={{
+                      width: "100%", padding: "7px 10px", borderRadius: 6, fontSize: 12,
+                      background: "rgba(255,255,255,0.04)", border: "1px solid var(--qs-border-md)",
+                      color: "var(--qs-text)", outline: "none",
+                    }}
+                  />
                 </div>
 
                 {/* Submit */}
@@ -826,14 +851,18 @@ function AppContent() {
                         <MetricCard label="Sharpe Ratio" icon={<BarChartIcon />} accent="var(--qs-accent)"
                           value={String(results.metrics.sharpe_ratio)} sub="Risk-adjusted return" />
                         <MetricCard label="Max Drawdown" icon={<AlertIcon />} accent="var(--qs-red)"
-                          value={`${results.metrics.max_drawdown}%`} sub="Peak-to-trough" />
+                          value={`${results.metrics.max_drawdown}%`}
+                          sub={results.metrics.max_drawdown_worst != null
+                            ? `median · worst: ${results.metrics.max_drawdown_worst}%`
+                            : "Median per simulation"} />
                         <TierGate requiredTier="pro" feature="VaR 95%">
                           <MetricCard label="VaR 95%" icon={<ShieldIcon />} accent="var(--qs-amber)"
                             value={fmt(Math.abs(results.metrics.var_95))} sub="1-day 95% loss" />
                         </TierGate>
                         <TierGate requiredTier="pro" feature="CVaR 95%">
                           <MetricCard label="CVaR 95%" icon={<AlertIcon />} accent="var(--qs-red)"
-                            value={fmt(Math.abs(results.metrics.cvar_95))} sub="Expected shortfall" />
+                            value={results.metrics.cvar_95 != null ? fmt(Math.abs(results.metrics.cvar_95)) : "—"}
+                            sub="Expected shortfall" />
                         </TierGate>
                         <MetricCard label="Median Final" icon={<DollarIcon />} accent="var(--qs-green)"
                           value={fmt(results.metrics.median_final_value)} sub="50th percentile" />
@@ -865,7 +894,7 @@ function AppContent() {
                         </div>
                       </div>
 
-                      <ReturnHistogram paths={results.paths} initialValue={initialValue} varValue={results.metrics.var_95} cvarValue={results.metrics.cvar_95} />
+                      <ReturnHistogram paths={results.paths} initialValue={initialValue} varValue={results.metrics.var_95} cvarValue={results.metrics.cvar_95 ?? results.metrics.var_95} />
 
                       {results.correlation_matrix && Object.keys(results.correlation_matrix).length > 1 && (
                         <TierGate requiredTier="pro" feature="Correlation Heatmap">

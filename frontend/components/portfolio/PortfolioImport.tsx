@@ -30,7 +30,7 @@ const PASTE_PLACEHOLDER = `AAPL 40
 MSFT 30
 NVDA 30
 
-# One ticker per line.
+# One ticker per line. Weights are percentages (40 = 40%, not 0.40).
 # TICKER WEIGHT  or  TICKER, WEIGHT%
 # Also supports:  TICKER 200 shares`;
 
@@ -448,9 +448,9 @@ export default function PortfolioImport({ assets, onChange, onAutoAnalyze, ticke
           {/* Format hint */}
           {!holdings.length && (
             <p style={{ fontSize: 10, color: "rgba(255,255,255,0.22)", lineHeight: 1.6, margin: 0 }}>
-              Formats: <code style={{ fontFamily: "monospace" }}>AAPL 40</code>,{" "}
-              <code style={{ fontFamily: "monospace" }}>MSFT, 30%</code>,{" "}
-              <code style={{ fontFamily: "monospace" }}>NVDA 200 shares</code>
+              Weights are <strong style={{ color: "rgba(255,255,255,0.4)" }}>percentages</strong>:{" "}
+              <code style={{ fontFamily: "monospace" }}>AAPL 40</code> means 40%, not 0.40.{" "}
+              Also: <code style={{ fontFamily: "monospace" }}>MSFT, 30%</code> · <code style={{ fontFamily: "monospace" }}>NVDA 200 shares</code>
             </p>
           )}
         </div>

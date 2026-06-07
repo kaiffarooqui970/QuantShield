@@ -117,7 +117,8 @@ def calculate_var_cvar(
 
 def _fetch_price_series(ticker: str, days_back: int = 730) -> pd.Series:
     """Fetch adjusted close prices from Yahoo Finance v8 chart API with fallback."""
-    end_ts = int(datetime.now().timestamp())
+    # Add 2-day buffer on end to compensate for Yahoo's delayed close data.
+    end_ts   = int((datetime.now() + timedelta(days=2)).timestamp())
     start_ts = int((datetime.now() - timedelta(days=days_back)).timestamp())
 
     headers = {
@@ -188,6 +189,7 @@ def run_monte_carlo(
     initial_portfolio_value: float = 10_000.0,
     model: str = "gbm",          # "gbm" | "student_t"
     student_t_df: int = 5,       # degrees of freedom (Student-t only)
+    rng_seed: Optional[int] = None,
 ) -> dict:
     """
     Run a Geometric Brownian Motion Monte Carlo simulation on a portfolio.
@@ -223,7 +225,7 @@ def run_monte_carlo(
 
     # ── Monte Carlo paths ─────────────────────────────────────────────────────
     # Shape: (n_simulations, simulation_days, n_assets)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(rng_seed)
     if model == "student_t":
         # Student-t draws normalised to unit variance: divide by sqrt(df/(df-2))
         df = max(int(student_t_df), 3)
@@ -256,10 +258,17 @@ def run_monte_carlo(
     cvar_95 = float(pnl[pnl <= var_95].mean()) if (pnl <= var_95).any() else var_95
     cvar_99 = float(pnl[pnl <= var_99].mean()) if (pnl <= var_99).any() else var_99
 
-    # Max Drawdown (across all simulations → worst-case)
+    # Max Drawdown — computed per simulation path, then aggregated.
+    # Taking .min() on the full 2-D array would return the single worst tick across
+    # every path, which is dominated by outliers.  Instead we take the worst
+    # peak-to-trough within each path (.min(axis=1)), then report the distribution.
     running_max = np.maximum.accumulate(portfolio_paths, axis=1)
-    drawdowns = (portfolio_paths - running_max) / running_max
-    max_drawdown = float(drawdowns.min())
+    drawdowns   = (portfolio_paths - running_max) / running_max   # (sims, days), <= 0
+    per_path_dd = drawdowns.min(axis=1)                           # worst dd per sim
+    max_drawdown_median = float(np.median(per_path_dd))
+    max_drawdown_mean   = float(per_path_dd.mean())
+    max_drawdown_p95    = float(np.percentile(per_path_dd, 5))    # worst 5 % of paths
+    max_drawdown_worst  = float(per_path_dd.min())
 
     # Sharpe Ratio (annualised, risk-free ≈ 5.25% ≈ current fed rate)
     risk_free_rate = 0.0525
@@ -307,7 +316,12 @@ def run_monte_carlo(
             "annual_volatility": round(portfolio_annual_vol * 100, 4),
             "sharpe_ratio": round(sharpe, 4),
             "sortino_ratio": round(sortino, 4),
-            "max_drawdown": round(max_drawdown * 100, 4),
+            # max_drawdown = median per-path drawdown (representative "typical" experience).
+            # Worst-case outlier is in max_drawdown_worst.
+            "max_drawdown":        round(max_drawdown_median * 100, 2),
+            "max_drawdown_mean":   round(max_drawdown_mean   * 100, 2),
+            "max_drawdown_p95":    round(max_drawdown_p95    * 100, 2),
+            "max_drawdown_worst":  round(max_drawdown_worst  * 100, 2),
             "var_95": round(var_95, 2),
             "var_99": round(var_99, 2),
             "cvar_95": round(cvar_95, 2),

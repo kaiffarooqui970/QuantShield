@@ -182,7 +182,7 @@ function DashboardPreview() {
         </div>
         <div>
           <p style={{ fontSize:10, fontWeight:700, color:"#C4B5FD", margin:0 }}>AI Copilot</p>
-          <p style={{ fontSize:9, color:"rgba(255,255,255,.35)", margin:0 }}>Llama 3.3 · Streaming</p>
+          <p style={{ fontSize:9, color:"rgba(255,255,255,.35)", margin:0 }}>Claude · Streaming</p>
         </div>
       </div>
     </div>
@@ -225,12 +225,12 @@ function TickerCanvas() {
 // ─────────────────────────────────────────────────────────────────────────────
 const FEATURES = [
   { Icon:IcoMonteCarlo, name:"Monte Carlo Engine",   tagline:"20,000 correlated paths in <500ms",          detail:"Powered by Geometric Brownian Motion with Student-t distribution tails for realistic fat-tail behavior. Cholesky decomposition ensures mathematically correct cross-asset correlation across your entire portfolio.", stat:"20K paths",  color:"#818CF8" },
-  { Icon:IcoVaR,        name:"VaR & CVaR Analytics", tagline:"95% & 99% confidence tail-risk",              detail:"Value-at-Risk and Conditional Value-at-Risk computed using all three industry-standard methods: historical simulation, parametric (delta-normal), and Monte Carlo. CVaR goes beyond VaR by quantifying the expected loss in the worst-case tail.",    stat:"4 methods", color:"#F87171" },
-  { Icon:IcoStress,     name:"Stress Testing",        tagline:"7 historical crisis scenarios",               detail:"Replay your portfolio through every major market dislocation: the 2008 Financial Crisis, COVID-19 crash, Dot-com bust, Black Monday 1987, 2022 rate shock, China devaluation, and the 2020 oil crash.",                                              stat:"7 crises",   color:"#FBBF24" },
-  { Icon:IcoAI,         name:"AI Risk Copilot",       tagline:"Llama 3.3 70B · streaming analysis",          detail:"Context-aware AI advisor powered by Meta's Llama 3.3 70B model with full streaming output. Contextually understands your portfolio composition, live risk metrics, and simulation results.",                                                         stat:"Llama 3.3",  color:"#C084FC" },
+  { Icon:IcoVaR,        name:"VaR & CVaR Analytics", tagline:"95% & 99% confidence tail-risk",              detail:"Value-at-Risk and Conditional Value-at-Risk computed using three industry-standard methods: historical simulation, parametric (delta-normal), and Monte Carlo. CVaR goes beyond VaR by quantifying the expected loss in the worst-case tail.",    stat:"3 methods", color:"#F87171" },
+  { Icon:IcoStress,     name:"Stress Testing",        tagline:"5 historical crisis scenarios",               detail:"Replay your portfolio through major market dislocations: the 2008 Financial Crisis, COVID-19 crash, Dot-com bust, 2022 rate shock, and a fully custom per-asset shock scenario.",                                                                     stat:"5 crises",   color:"#FBBF24" },
+  { Icon:IcoAI,         name:"AI Risk Copilot",       tagline:"Claude · streaming analysis",                 detail:"Context-aware AI advisor powered by Anthropic's Claude with full streaming output. Contextually understands your portfolio composition, live risk metrics, and simulation results.",                                                                    stat:"Claude",     color:"#C084FC" },
   { Icon:IcoCorrelation,name:"Correlation Heatmap",   tagline:"Cholesky cross-asset co-movement",            detail:"Visualize the full correlation matrix across every asset. Identify hidden concentration risks when assets you thought were uncorrelated begin moving together.",                                                                                         stat:"Full matrix", color:"#06B6D4" },
   { Icon:IcoFrontier,   name:"Efficient Frontier",    tagline:"Markowitz mean-variance optimization",         detail:"Compute the complete efficient frontier for your asset universe in real-time. Interactive optimizer shows the maximum Sharpe ratio portfolio and minimum-variance portfolio.",                                                                           stat:"Optimal",    color:"#4CB782" },
-  { Icon:IcoBacktest,   name:"Historical Backtesting",tagline:"Walk-forward against real price data",         detail:"Validate your risk models against decades of actual market data. Compare model-predicted VaR exceedances against realized losses — Kupiec POF test and Christoffersen interval test built in.",                                                          stat:"20yr history",color:"#3B82F6" },
+  { Icon:IcoBacktest,   name:"Historical Backtesting",tagline:"Walk-forward against real price data",         detail:"Validate your risk models against real market data (approx. 3 years of daily prices). Compare model-predicted VaR exceedances against realized losses — Kupiec POF test and Christoffersen interval test built in.",                                   stat:"~3yr history",color:"#3B82F6" },
   { Icon:IcoPDF,        name:"PDF Risk Reports",      tagline:"White-label professional output",              detail:"Generate publication-quality PDF risk reports containing every metric, chart, and AI narrative. Fully white-labeled for client presentations, internal risk committees, or regulatory submissions.",                                                     stat:"White-label", color:"#94A3B8" },
 ];
 const WHY = [
@@ -272,9 +272,9 @@ function getAIResponse(q: string): string {
   if (s.includes("stress") || s.includes("crisis") || s.includes("scenario"))
     return "Stress testing replays your portfolio through **7 real crises**: 2008 Financial Crisis, COVID-19 crash, Dot-com bust, Black Monday 1987, 2022 rate shock, China devaluation, and the 2020 oil crash.";
   if (s.includes("free") || s.includes("pro") || s.includes("price") || s.includes("plan") || s.includes("cost"))
-    return "**Free**: 3 simulations/day — Monte Carlo, VaR, CVaR, stress tests. No card needed.\n\n**Pro ($29/mo)**: Unlimited sims, AI Copilot (Llama 3.3), PDF reports, backtesting, efficient frontier.";
-  if (s.includes("ai") || s.includes("llama") || s.includes("copilot"))
-    return "The AI Copilot is powered by **Meta Llama 3.3 70B** with streaming output. It reads your live portfolio metrics and simulation results to give contextual risk analysis — available on Pro and above.";
+    return "**Free**: 3 simulations/day — Monte Carlo, VaR, CVaR, stress tests. No card needed.\n\n**Pro ($29/mo)**: Unlimited sims, AI Copilot (Claude), PDF reports, backtesting, efficient frontier.";
+  if (s.includes("ai") || s.includes("llama") || s.includes("claude") || s.includes("copilot"))
+    return "The AI Copilot is powered by **Anthropic Claude** with streaming output. It reads your live portfolio metrics and simulation results to give contextual risk analysis — available on Pro and above.";
   if (s.includes("fast") || s.includes("speed") || s.includes("500"))
     return "The full stack — 20,000 Monte Carlo paths, correlation matrix, VaR, CVaR — runs in **under 500ms** using optimised NumPy/SciPy vectorised ops on a FastAPI backend.";
   if (s.includes("secur") || s.includes("data") || s.includes("privac"))
@@ -282,7 +282,7 @@ function getAIResponse(q: string): string {
   if (s.includes("start") || s.includes("begin") || s.includes("sign up") || s.includes("register"))
     return "1. Create a free account (no card needed)\n2. Enter your portfolio tickers & weights\n3. Run your first Monte Carlo simulation\n4. Explore VaR, stress tests & AI Copilot\n\nFree plan gives you 3 simulations/day.";
   if (s.includes("backtest"))
-    return "**Backtesting** validates your risk models against decades of real price data. We use the Kupiec POF test and Christoffersen interval test — standard regulatory validation methods.";
+    return "**Backtesting** validates your risk models against approximately 3 years of real daily price data. We use the Kupiec POF test and Christoffersen interval test — standard regulatory validation methods.";
   if (s.includes("frontier") || s.includes("markowitz") || s.includes("sharpe") || s.includes("optim"))
     return "The **Efficient Frontier** optimizer uses Markowitz mean-variance to find the max Sharpe ratio and minimum-variance portfolios from your asset universe — computed and rendered in real-time.";
   return "QuantShield AI provides institutional-grade portfolio risk analytics: Monte Carlo simulation, VaR/CVaR, stress testing, AI Copilot, and more. Ask me about any feature, pricing, or getting started!";
@@ -346,7 +346,7 @@ function AIHelpWidget() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-bold text-[#F2F2F7] m-0">QuantShield AI Support</p>
-              <p className="text-[10px] text-white/35 m-0">Powered by Llama 3.3</p>
+              <p className="text-[10px] text-white/35 m-0">Powered by Claude</p>
             </div>
             <button onClick={() => setOpen(false)} className="text-white/30 hover:text-white/70 transition-colors text-lg leading-none cursor-pointer bg-transparent border-none p-0">×</button>
           </div>
@@ -605,7 +605,7 @@ function LoginForm() {
             </div>
             <div style={{ flex:1, display:"flex", alignItems:"flex-end", paddingBottom:20 }}><DashboardPreview/></div>
             <div style={{ display:"flex", paddingTop:28, marginTop:60, borderTop:"1px solid rgba(255,255,255,0.07)" }}>
-              {[{v:"20,000+",l:"Simulated paths"},{v:"8+",l:"Risk metrics"},{v:"<500ms",l:"Compute time"},{v:"Free",l:"To start"}].map((s,i)=>(
+              {[{v:"20,000+",l:"Simulated paths"},{v:"6",l:"Risk metrics"},{v:"<500ms",l:"Compute time"},{v:"Free",l:"To start"}].map((s,i)=>(
                 <div key={s.l} style={{ flex:1, paddingLeft:i>0?18:0, marginLeft:i>0?18:0, borderLeft:i>0?"1px solid rgba(255,255,255,0.07)":"none" }}>
                   <p style={{ fontSize:18, fontWeight:800, color:"#F2F2F7", margin:"0 0 2px", letterSpacing:"-0.02em" }}>{s.v}</p>
                   <p style={{ fontSize:10, color:"rgba(255,255,255,0.3)", margin:0 }}>{s.l}</p>
@@ -667,7 +667,7 @@ function LoginForm() {
                   <div key={h} style={{ padding:"12px 16px", fontSize:11, fontWeight:700, color:i===3?"#818CF8":"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:"0.07em" }}>{h}</div>
                 ))}
               </div>
-              {[["Monte Carlo","❌ Manual","✓ Limited","✓ 20K paths"],["AI Copilot","❌ None","❌ None","✓ Llama 3.3"],["VaR & CVaR","❌ Formula","✓ Yes","✓ 4 methods"],["Stress Testing","❌ Manual","✓ Basic","✓ 7 scenarios"],["Speed","⚠ Hours","⚠ Minutes","✓ <500ms"],["Cost","✓ Included","✗ $24K/yr","✓ Free / $29/mo"]].map(([feat,...rest])=>(
+              {[["Monte Carlo","❌ Manual","✓ Limited","✓ 20K paths"],["AI Copilot","❌ None","❌ None","✓ Claude"],["VaR & CVaR","❌ Formula","✓ Yes","✓ 3 methods"],["Stress Testing","❌ Manual","✓ Basic","✓ 5 scenarios"],["Speed","⚠ Hours","⚠ Minutes","✓ <500ms"],["Cost","✓ Included","✗ $24K/yr","✓ Free / $29/mo"]].map(([feat,...rest])=>(
                 <div key={feat} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
                   <div style={{ padding:"11px 16px", fontSize:12, fontWeight:500, color:"rgba(255,255,255,0.6)" }}>{feat}</div>
                   {rest.map((v,i)=><div key={i} style={{ padding:"11px 16px", fontSize:12, color:i===1?"#4CB782":"rgba(255,255,255,0.3)", fontWeight:i===1?600:400 }}>{v}</div>)}

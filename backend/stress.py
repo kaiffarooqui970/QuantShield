@@ -12,26 +12,41 @@ from engine import fetch_portfolio_prices
 RISK_FREE_RATE = 0.0525
 TRADING_DAYS = 252
 
+# Each scenario carries:
+#   portfolio_shock  : immediate fractional loss applied to starting value
+#   vol_scale        : multiplier on the historical covariance matrix (sigma * vol_scale)
+#                      reflects that crises cause volatility to spike
+#   return_adj       : absolute annual return adjustment (e.g. -0.05 = -5 ppts)
+#                      reflects that forward expected returns compress during crises
+# These are the levers that make stressed Expected Return / Vol / Sharpe actually move.
 BUILTIN_SCENARIOS: dict[str, dict] = {
     "2008_crash": {
         "name": "2008 Financial Crisis",
         "description": "Lehman Brothers collapse, global credit crunch — ~50% equity drawdown over 17 months",
         "portfolio_shock": -0.50,
+        "vol_scale": 2.5,      # VIX peaked at ~80, roughly 2.5× normal
+        "return_adj": -0.07,   # forward earnings collapse; -7 ppts annual
     },
     "covid_drop": {
         "name": "COVID-19 Crash (Mar 2020)",
         "description": "Pandemic-driven panic selling — fastest -35% decline in market history, recovered in 5 months",
         "portfolio_shock": -0.35,
+        "vol_scale": 2.0,
+        "return_adj": -0.04,
     },
     "rate_shock": {
         "name": "Rate Shock +300bps",
         "description": "Fed emergency hike of 300bps repricing growth/tech assets sharply lower (~2022 scenario)",
         "portfolio_shock": -0.22,
+        "vol_scale": 1.6,
+        "return_adj": -0.03,   # higher rates hurt growth valuations but not catastrophic
     },
     "tech_bubble": {
         "name": "Dot-com Bubble Burst",
         "description": "2000–2002 NASDAQ collapse — tech stocks lose ~78% peak-to-trough over 31 months",
         "portfolio_shock": -0.78,
+        "vol_scale": 2.2,
+        "return_adj": -0.10,
     },
 }
 
@@ -43,17 +58,30 @@ def _compute_metrics(
     n_simulations: int = 1000,
     simulation_days: int = 252,
     seed: int = 42,
+    vol_scale: float = 1.0,
+    return_adj: float = 0.0,
 ) -> dict:
-    """Compute full MC risk metrics from a price DataFrame."""
+    """
+    Compute MC risk metrics from a price DataFrame.
+
+    vol_scale  : multiply the covariance matrix by this factor (sigma scaled by sqrt).
+                 Allows stressed scenarios to reflect crisis-level volatility.
+    return_adj : additive annual return adjustment (e.g. -0.05 means -5 ppts/yr).
+                 Applied to daily drift so that expected return and Sharpe actually change.
+    """
     n = len(prices.columns)
     rng = np.random.default_rng(seed)
 
     log_returns = np.log(prices / prices.shift(1)).dropna()
     mu = log_returns.mean().values
-    cov = log_returns.cov().values
+    cov = log_returns.cov().values * (vol_scale ** 2)    # scale variance; sigma scales by vol_scale
     sigma = np.sqrt(np.diag(cov))
 
-    annual_return = float(weights @ (mu * TRADING_DAYS))
+    # Apply return adjustment: convert annual adj to daily and add to mu
+    daily_return_adj = return_adj / TRADING_DAYS
+    mu_stressed = mu + daily_return_adj
+
+    annual_return = float(weights @ (mu_stressed * TRADING_DAYS))
     annual_vol = float(np.sqrt(weights @ cov @ weights) * np.sqrt(TRADING_DAYS))
 
     try:
@@ -63,7 +91,7 @@ def _compute_metrics(
 
     Z = rng.standard_normal((n_simulations, simulation_days, n))
     shocks = Z @ chol.T
-    drift = mu - 0.5 * sigma ** 2
+    drift = mu_stressed - 0.5 * sigma ** 2
     increments = drift + sigma * shocks
     paths = initial_value * (np.exp(np.cumsum(increments, axis=1)) @ weights)
 
@@ -112,8 +140,9 @@ def run_stress_test(
     """
     Run a stress test on a portfolio under a named scenario.
 
-    Shocks are applied to the historical price series (multiplicative), then
-    post-shock metrics are computed via Monte Carlo from the shocked history.
+    The immediate shock scales the starting portfolio value.  Forward simulation
+    uses scenario-specific vol_scale and return_adj so that Expected Return,
+    Volatility, and Sharpe genuinely change — not just dollar metrics.
 
     Parameters
     ----------
@@ -128,10 +157,13 @@ def run_stress_test(
 
     prices = fetch_portfolio_prices(tickers)
 
-    # ── Baseline ──────────────────────────────────────────────────────────────
+    # ── Baseline (no scaling) ─────────────────────────────────────────────────
     baseline = _compute_metrics(prices, w, initial_portfolio_value, n_simulations, simulation_days)
 
     # ── Resolve scenario ──────────────────────────────────────────────────────
+    vol_scale  = 1.0
+    return_adj = 0.0
+
     if scenario == "custom":
         if not custom_shocks:
             raise ValueError("custom_shocks dict is required when scenario='custom'.")
@@ -140,16 +172,17 @@ def run_stress_test(
             "description": "User-defined per-asset shocks",
         }
         portfolio_shock = float(sum(w[i] * custom_shocks.get(tickers[i], 0.0) for i in range(n)))
-        shocked_prices = prices.copy()
-        for ticker, shock in custom_shocks.items():
-            if ticker in shocked_prices.columns:
-                shocked_prices[ticker] = shocked_prices[ticker] * (1.0 + shock)
+        # Derive stress factors from shock magnitude: larger shock → more vol, lower return
+        abs_shock = abs(portfolio_shock)
+        vol_scale  = 1.0 + abs_shock * 3.0   # e.g. -30% shock → vol_scale ≈ 1.9
+        return_adj = -abs_shock * 0.15        # rough forward return compression
 
     elif scenario in BUILTIN_SCENARIOS:
         s = BUILTIN_SCENARIOS[scenario]
         scenario_meta = {"name": s["name"], "description": s["description"]}
         portfolio_shock = s["portfolio_shock"]
-        shocked_prices = prices * (1.0 + portfolio_shock)
+        vol_scale  = s["vol_scale"]
+        return_adj = s["return_adj"]
 
     else:
         valid = list(BUILTIN_SCENARIOS.keys()) + ["custom"]
@@ -157,9 +190,12 @@ def run_stress_test(
 
     shocked_initial = max(initial_portfolio_value * (1.0 + portfolio_shock), 100.0)
 
-    # ── Stressed metrics ──────────────────────────────────────────────────────
+    # ── Stressed metrics: use original price history but apply vol/return stress ─
+    # (Applying a uniform multiplier to prices cancels in log-returns, so we stress
+    #  the *distribution parameters* directly via vol_scale and return_adj instead.)
     stressed = _compute_metrics(
-        shocked_prices, w, shocked_initial, n_simulations, simulation_days, seed=99
+        prices, w, shocked_initial, n_simulations, simulation_days,
+        seed=99, vol_scale=vol_scale, return_adj=return_adj,
     )
 
     # ── Deltas ────────────────────────────────────────────────────────────────

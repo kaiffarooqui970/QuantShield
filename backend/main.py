@@ -144,6 +144,7 @@ class SimulationRequest(BaseModel):
     initial_portfolio_value: float = Field(default=10000.0, ge=100.0)
     model: str = Field(default="gbm", pattern="^(gbm|student_t)$")
     student_t_df: int = Field(default=5, ge=3, le=30)
+    rng_seed: Optional[int] = Field(default=None, ge=0, le=2**31 - 1)
 
     # PASTE IT RIGHT HERE (Ensure it aligns with the variables above)
     @model_validator(mode="before")
@@ -288,6 +289,7 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
             initial_portfolio_value=req.initial_portfolio_value,
             model=req.model,
             student_t_df=req.student_t_df,
+            rng_seed=req.rng_seed,
         )
         # Strip CVaR / Sortino for free-tier and anonymous users
         if not auth.authenticated or auth.tier == "free":

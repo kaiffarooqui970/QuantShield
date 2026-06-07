@@ -27,7 +27,7 @@ const PLANS = [
       "Unlimited simulations",
       "All 6 risk metrics",
       "Full 252-day Monte Carlo",
-      "All 7 benchmarks",
+      "All 6 benchmarks",
       "Correlation heatmap",
       "AI narrative (Claude)",
       "Behavioural Risk Gap quiz",
@@ -53,11 +53,21 @@ const PLANS = [
   },
 ];
 
+// Show only prefix + suffix of a secret key. Never log or store the full key after init.
+function maskKey(k: string): string {
+  if (k.length <= 12) return k.slice(0, 4) + "…" + k.slice(-4);
+  return k.slice(0, 6) + "…" + k.slice(-4);
+}
+
 function SettingsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, tier, loading, refreshTier, getToken } = useAuth();
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  // maskedKey: what we persist in state (never the full secret after load)
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  // rawNewKey: full key shown ONCE immediately after generation, then cleared
+  const [rawNewKey, setRawNewKey] = useState<string | null>(null);
+  const [keyCopied, setKeyCopied] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"success" | "cancel" | null>(null);
 
@@ -82,7 +92,10 @@ function SettingsInner() {
         .select("api_key")
         .eq("id", user.id)
         .single()
-        .then(({ data }) => setApiKey(data?.api_key ?? null));
+        .then(({ data }) => {
+          // Always mask the key when loading from DB — never expose the full secret again.
+          if (data?.api_key) setMaskedKey(maskKey(data.api_key));
+        });
     }
   }, [tier, user]);
 
@@ -114,8 +127,19 @@ function SettingsInner() {
     });
     if (res.ok) {
       const { api_key } = await res.json();
-      setApiKey(api_key);
+      // Show the full key ONCE in the one-time-reveal banner; store masked for display.
+      setRawNewKey(api_key);
+      setMaskedKey(maskKey(api_key));
+      setKeyCopied(false);
     }
+  };
+
+  const handleCopyNewKey = () => {
+    if (!rawNewKey) return;
+    navigator.clipboard.writeText(rawNewKey);
+    setKeyCopied(true);
+    // Clear the raw key after copy — it won't be shown again.
+    setTimeout(() => { setRawNewKey(null); setKeyCopied(false); }, 2000);
   };
 
   if (loading || !user) {
@@ -239,23 +263,57 @@ function SettingsInner() {
         {tier === "enterprise" && (
           <section className="mb-10">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">REST API Key</h2>
-            <div className="rounded-2xl border p-5" style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(139,92,246,0.2)" }}>
-              {apiKey ? (
-                <div>
-                  <p className="text-xs text-slate-500 mb-2">Your API key — keep it secret</p>
+            <div className="rounded-2xl border p-5 flex flex-col gap-4" style={{ background: "rgba(255,255,255,0.02)", borderColor: "rgba(139,92,246,0.2)" }}>
+
+              {/* One-time reveal banner — shown only immediately after generation */}
+              {rawNewKey && (
+                <div className="rounded-xl border p-4 flex flex-col gap-3"
+                  style={{ background: "rgba(16,185,129,0.06)", borderColor: "rgba(16,185,129,0.3)" }}>
+                  <div className="flex items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2} className="w-4 h-4 shrink-0">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    <p className="text-xs font-semibold text-emerald-400">Your new API key — copy it now. It won't be shown again.</p>
+                  </div>
                   <div className="flex items-center gap-3">
-                    <code className="flex-1 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-300 truncate"
-                      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                      {apiKey}
+                    <code className="flex-1 rounded-lg px-3 py-2 text-sm font-mono text-emerald-300 break-all"
+                      style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                      {rawNewKey}
                     </code>
                     <button
-                      onClick={() => navigator.clipboard.writeText(apiKey)}
-                      className="px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white transition-colors"
-                      style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                      onClick={handleCopyNewKey}
+                      className="shrink-0 px-4 py-2 rounded-xl text-xs font-bold text-white transition-all"
+                      style={{ background: keyCopied ? "#10b981" : "linear-gradient(135deg, #10b981, #059669)" }}
                     >
-                      Copy
+                      {keyCopied ? "Copied!" : "Copy & Hide"}
                     </button>
                   </div>
+                  <p className="text-[11px] text-slate-500">
+                    Treat this like a password. Store it in a secrets manager. We store only a masked version.
+                  </p>
+                </div>
+              )}
+
+              {/* Masked key (always shown when a key exists) */}
+              {maskedKey ? (
+                <div>
+                  <p className="text-xs text-slate-500 mb-2">Active API key</p>
+                  <div className="flex items-center gap-3">
+                    <code className="flex-1 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-500 tracking-widest"
+                      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                      {maskedKey}
+                    </code>
+                    <button
+                      onClick={generateApiKey}
+                      className="shrink-0 px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white transition-colors"
+                      style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                    >
+                      Rotate
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-2">
+                    The full key is only visible once at generation time. Rotating creates a new key and invalidates the old one.
+                  </p>
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-4">

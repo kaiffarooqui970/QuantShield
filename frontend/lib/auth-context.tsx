@@ -55,9 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Use async callback so we can await fetchTier before clearing the loading flag.
+    // Without await, the page renders with tier="free" while fetchTier is still in flight,
+    // causing paid users to briefly see gated/free-tier views.
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchTier(session.user.id, session.user.email);
+      if (session?.user) await fetchTier(session.user.id, session.user.email);
       setLoading(false);
     });
 
