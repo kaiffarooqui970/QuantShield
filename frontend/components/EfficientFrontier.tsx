@@ -26,7 +26,7 @@ interface Props {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function EfficientFrontier({ tickers, apiBaseUrl = "http://localhost:8000" }: Props) {
+export default function EfficientFrontier({ tickers, apiBaseUrl = "/backend" }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef   = useRef<HTMLDivElement>(null);
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -53,7 +53,7 @@ const PLANS = [
   },
 ];
 
-export default function SettingsPage() {
+function SettingsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, tier, loading, refreshTier, getToken } = useAuth();
@@ -91,7 +91,7 @@ export default function SettingsPage() {
     setCheckoutLoading(planId);
 
     const token = await getToken();
-    const res = await fetch("http://localhost:8000/api/stripe/checkout", {
+    const res = await fetch("/backend/api/stripe/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ price_id: priceId }),
@@ -108,7 +108,7 @@ export default function SettingsPage() {
 
   const generateApiKey = async () => {
     const token = await getToken();
-    const res = await fetch("http://localhost:8000/api/settings/api-key", {
+    const res = await fetch("/backend/api/settings/api-key", {
       method: "POST",
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
@@ -274,5 +274,20 @@ export default function SettingsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#030712" }}>
+        <svg className="w-6 h-6 animate-spin text-cyan-400" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+        </svg>
+      </div>
+    }>
+      <SettingsInner />
+    </Suspense>
   );
 }

@@ -64,7 +64,7 @@ function DeltaCell({ value, invert = false }: { value: number; invert?: boolean 
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function StressTester({ tickers, weights, initialValue, apiBaseUrl = "http://localhost:8000" }: Props) {
+export default function StressTester({ tickers, weights, initialValue, apiBaseUrl = "/backend" }: Props) {
   const [scenario, setScenario] = useState("2008_crash");
   const [customShocks, setCustomShocks] = useState<Record<string, string>>({});
   const [result, setResult] = useState<StressResult | null>(null);

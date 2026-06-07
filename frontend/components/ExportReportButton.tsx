@@ -8,7 +8,7 @@ export default function ExportReportButton({ simulationResults, currentPortfolio
   const handleDownloadPDF = async () => {
     setIsDownloading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/report/generate', {
+      const response = await fetch('/backend/api/report/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

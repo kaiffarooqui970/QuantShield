@@ -1,12 +1,10 @@
 "use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const REDIRECT_URL =
-  typeof window !== "undefined"
-    ? `${window.location.origin}/auth/callback`
-    : `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`;
+const getRedirectUrl = () => `${window.location.origin}/auth/callback`;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -22,120 +20,112 @@ export default function RegisterPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
+    const { data, error: err } = await supabase.auth.signUp({
+      email, password,
       options: { data: { full_name: fullName } },
     });
-
-    if (signUpError) {
-      setError(signUpError.message);
-      setLoading(false);
-      return;
-    }
-
+    if (err) { setError(err.message); setLoading(false); return; }
     if (data.user) {
       await supabase.from("profiles").upsert(
         { id: data.user.id, email, full_name: fullName, tier: "free" },
-        { onConflict: "id", ignoreDuplicates: true }
+        { onConflict: "id", ignoreDuplicates: true },
       );
-
-      if (data.session) {
-        router.replace("/");
-      } else {
-        setSuccess(true);
-      }
+      if (data.session) router.replace("/");
+      else setSuccess(true);
     }
-
     setLoading(false);
   };
 
-  const handleGoogleSignUp = async () => {
+  const handleGoogle = async () => {
     setGoogleLoading(true);
     setError(null);
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+    const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: REDIRECT_URL },
+      options: { redirectTo: getRedirectUrl() },
     });
-    if (oauthError) {
-      setError(oauthError.message);
-      setGoogleLoading(false);
-    }
+    if (err) { setError(err.message); setGoogleLoading(false); }
   };
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#030712" }}>
-        <div className="rounded-3xl border p-10 max-w-md w-full text-center" style={{
-          background: "rgba(255,255,255,0.03)", borderColor: "rgba(16,185,129,0.25)",
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0D0D10", padding: 24 }}>
+        <div style={{
+          maxWidth: 400, width: "100%", padding: "40px 32px",
+          background: "var(--qs-surface)", border: "1px solid rgba(76,183,130,0.25)",
+          borderRadius: 12, textAlign: "center",
         }}>
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
-            style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)" }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5} className="w-7 h-7">
+          <div style={{
+            width: 48, height: 48, borderRadius: 12, margin: "0 auto 16px",
+            background: "var(--qs-green-bg)", border: "1px solid rgba(76,183,130,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--qs-green)" strokeWidth={2.5} style={{ width: 22, height: 22 }}>
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
-          <p className="text-slate-400 text-sm">
-            We sent a confirmation link to <span className="text-white font-medium">{email}</span>.
-            Click it to activate your account.
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--qs-text)", margin: "0 0 8px" }}>Check your email</h2>
+          <p style={{ fontSize: 13, color: "var(--qs-text-2)", margin: "0 0 20px", lineHeight: 1.6 }}>
+            We sent a confirmation link to <strong style={{ color: "var(--qs-text)" }}>{email}</strong>. Click it to activate your account.
           </p>
-          <a href="/login" className="mt-6 inline-block text-cyan-400 text-sm hover:underline">
-            Back to login
+          <a href="/login" style={{ fontSize: 13, color: "var(--qs-accent)", textDecoration: "none" }}>
+            Back to sign in
           </a>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#030712" }}>
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute rounded-full blur-[120px] opacity-15"
-          style={{ width: 500, height: 500, top: -150, left: -100, background: "radial-gradient(circle, #06b6d4, transparent)" }} />
-        <div className="absolute rounded-full blur-[120px] opacity-10"
-          style={{ width: 400, height: 400, bottom: -100, right: -100, background: "radial-gradient(circle, #8b5cf6, transparent)" }} />
-      </div>
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "9px 12px", borderRadius: 7,
+    background: "rgba(255,255,255,0.04)", border: "1px solid var(--qs-border-md)",
+    color: "var(--qs-text)", fontSize: 13, outline: "none",
+    boxSizing: "border-box",
+  };
 
-      <div className="relative z-10 w-full max-w-md">
-        <div className="flex items-center gap-3 mb-10 justify-center">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #06b6d4, #3b82f6)" }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2} className="w-5 h-5">
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0D0D10", padding: 24 }}>
+      <div style={{ maxWidth: 400, width: "100%" }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28, justifyContent: "center" }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 7,
+            background: "linear-gradient(135deg, #5E6AD2, #8B5CF6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2} style={{ width: 14, height: 14 }}>
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
-          <span className="text-2xl font-extrabold" style={{
-            background: "linear-gradient(90deg, #e2e8f0, #94a3b8)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-          }}>
-            QuantShield<span style={{ WebkitTextFillColor: "#06b6d4" }}>AI</span>
-          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--qs-text)" }}>QuantShield AI</span>
         </div>
 
-        <div className="rounded-3xl border p-8" style={{
-          background: "rgba(255,255,255,0.03)",
-          borderColor: "rgba(255,255,255,0.08)",
-          backdropFilter: "blur(16px)",
+        <div style={{
+          background: "var(--qs-surface)", border: "1px solid var(--qs-border)",
+          borderRadius: 12, padding: "28px 28px 24px",
         }}>
-          <h1 className="text-xl font-bold text-white mb-1">Create your account</h1>
-          <p className="text-slate-500 text-sm mb-7">Free forever · No card required</p>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--qs-text)", margin: "0 0 4px" }}>Create account</h1>
+          <p style={{ fontSize: 13, color: "var(--qs-text-2)", margin: "0 0 24px" }}>Free forever · No card required</p>
 
           {/* Google */}
           <button
-            onClick={handleGoogleSignUp}
-            disabled={googleLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 rounded-xl font-medium text-sm transition-all hover:scale-[1.01] disabled:opacity-60 disabled:cursor-not-allowed mb-6"
-            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#e2e8f0" }}
+            onClick={handleGoogle} disabled={googleLoading}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              width: "100%", padding: "10px 16px", borderRadius: 7, marginBottom: 18,
+              background: "rgba(255,255,255,0.05)", border: "1px solid var(--qs-border-md)",
+              color: "var(--qs-text)", fontSize: 13, fontWeight: 500, cursor: "pointer",
+              opacity: googleLoading ? 0.6 : 1,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
           >
             {googleLoading ? (
-              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              <svg style={{ width: 14, height: 14 }} viewBox="0 0 24 24" fill="none">
+                <circle cx={12} cy={12} r={10} stroke="currentColor" strokeWidth={4} style={{ opacity: 0.25 }} />
+                <path fill="currentColor" style={{ opacity: 0.75 }} d="M4 12a8 8 0 018-8v8z" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+              <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }} fill="none">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                 <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
@@ -145,97 +135,65 @@ export default function RegisterPage() {
             Continue with Google
           </button>
 
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.07)" }} />
-            <span className="text-slate-600 text-xs font-medium">or</span>
-            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.07)" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+            <div style={{ flex: 1, height: 1, background: "var(--qs-border)" }} />
+            <span style={{ fontSize: 11, color: "var(--qs-text-3)" }}>or</span>
+            <div style={{ flex: 1, height: 1, background: "var(--qs-border)" }} />
           </div>
 
-          <form onSubmit={handleRegister} className="flex flex-col gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
-                Full Name
-              </label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Jane Smith"
-                required
-                className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
-                onFocus={(e) => (e.target.style.borderColor = "#06b6d4")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
-                onFocus={(e) => (e.target.style.borderColor = "#06b6d4")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Min 8 characters"
-                minLength={8}
-                required
-                className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 outline-none transition-all"
-                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
-                onFocus={(e) => (e.target.style.borderColor = "#06b6d4")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
-              />
-            </div>
+          <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              { label: "Full Name",  type: "text",     val: fullName,  set: setFullName,  placeholder: "Jane Smith",        minLen: undefined },
+              { label: "Email",      type: "email",    val: email,     set: setEmail,     placeholder: "you@example.com",   minLen: undefined },
+              { label: "Password",   type: "password", val: password,  set: setPassword,  placeholder: "Min 8 characters",  minLen: 8 },
+            ].map(f => (
+              <div key={f.label}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--qs-text-3)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+                  {f.label}
+                </label>
+                <input
+                  type={f.type} value={f.val} required
+                  minLength={f.minLen}
+                  onChange={e => f.set(e.target.value)}
+                  placeholder={f.placeholder}
+                  style={inputStyle}
+                  onFocus={e => (e.target.style.borderColor = "var(--qs-accent)")}
+                  onBlur={e => (e.target.style.borderColor = "var(--qs-border-md)")}
+                />
+              </div>
+            ))}
 
             {error && (
-              <p className="text-red-400 text-xs rounded-lg px-3 py-2"
-                style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
+              <div style={{ padding: "9px 12px", borderRadius: 6, fontSize: 12, color: "#F87171", background: "var(--qs-red-bg)", border: "1px solid rgba(229,72,77,0.2)" }}>
                 {error}
-              </p>
+              </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all hover:scale-[1.01] disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ background: "linear-gradient(135deg, #06b6d4, #3b82f6)", boxShadow: "0 0 24px rgba(6,182,212,0.3)" }}
-            >
+            <button type="submit" disabled={loading} style={{
+              padding: "10px 16px", borderRadius: 7, fontWeight: 600,
+              fontSize: 13, color: "white", cursor: "pointer",
+              background: "var(--qs-accent)", border: "1px solid rgba(94,106,210,0.6)",
+              opacity: loading ? 0.7 : 1,
+              boxShadow: "0 1px 8px rgba(94,106,210,0.25)",
+            }}>
               {loading ? "Creating account…" : "Create Free Account"}
             </button>
           </form>
 
-          {/* Feature bullets */}
-          <div className="mt-6 pt-6 border-t flex flex-col gap-2" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-            {["3 simulations/day free", "Monte Carlo risk engine", "AI Copilot access"].map((f) => (
-              <div key={f} className="flex items-center gap-2 text-xs text-slate-500">
-                <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2.5} className="w-3.5 h-3.5 shrink-0">
+          <div style={{ marginTop: 20, paddingTop: 18, borderTop: "1px solid var(--qs-border)" }}>
+            {["3 simulations/day free", "Monte Carlo risk engine", "AI Copilot access"].map(f => (
+              <div key={f} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--qs-green)" strokeWidth={2.5} style={{ width: 12, height: 12, flexShrink: 0 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                {f}
+                <span style={{ fontSize: 12, color: "var(--qs-text-3)" }}>{f}</span>
               </div>
             ))}
           </div>
 
-          <p className="mt-5 text-center text-sm text-slate-500">
+          <p style={{ fontSize: 12, color: "var(--qs-text-3)", marginTop: 16, textAlign: "center" }}>
             Already have an account?{" "}
-            <a href="/login" className="text-cyan-400 font-medium hover:underline">
-              Sign in
-            </a>
+            <a href="/login" style={{ color: "var(--qs-accent)", textDecoration: "none", fontWeight: 500 }}>Sign in</a>
           </p>
         </div>
       </div>

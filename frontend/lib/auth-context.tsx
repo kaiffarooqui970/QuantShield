@@ -5,6 +5,10 @@ import type { User } from "@supabase/supabase-js";
 
 export type Tier = "free" | "pro" | "enterprise";
 
+// Always enterprise — no payment required. ID is more reliable than email across OAuth providers.
+const ADMIN_EMAILS   = new Set(["kaif.farooqui10@gmail.com", "kaif.is.master@gmail.com"]);
+const ADMIN_USER_IDS = new Set(["8b9a9543-138a-4686-9fab-2a266d6a4a06"]);
+
 interface AuthContextType {
   user: User | null;
   tier: Tier;
@@ -28,7 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tier, setTier] = useState<Tier>("free");
   const [loading, setLoading] = useState(true);
 
-  const fetchTier = async (userId: string) => {
+  const fetchTier = async (userId: string, email?: string) => {
+    if (ADMIN_USER_IDS.has(userId) || (email && ADMIN_EMAILS.has(email))) {
+      setTier("enterprise");
+      return;
+    }
     const { data } = await supabase
       .from("profiles")
       .select("tier")
@@ -49,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchTier(session.user.id);
+      if (session?.user) fetchTier(session.user.id, session.user.email);
       setLoading(false);
     });
 
@@ -57,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (_event, session) => {
         setUser(session?.user ?? null);
         if (session?.user) {
-          await fetchTier(session.user.id);
+          await fetchTier(session.user.id, session.user.email);
         } else {
           setTier("free");
         }

@@ -335,7 +335,7 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Backtester({ tickers, weights, initialValue, apiBaseUrl = "http://localhost:8000" }: Props) {
+export default function Backtester({ tickers, weights, initialValue, apiBaseUrl = "/backend" }: Props) {
   const [result, setResult]         = useState<BacktestResult | null>(null);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);

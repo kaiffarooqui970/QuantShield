@@ -155,7 +155,7 @@ const MessageBubble = React.memo(function MessageBubble({
             )}
           </>
         )}
-        <time className="qs-ts">
+        <time className="qs-ts" suppressHydrationWarning>
           {message.timestamp.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -349,9 +349,13 @@ export default function CopilotWidget({
   const isLoadingRef = useRef(false);
 
   // ── Speech-to-text ──────────────────────────────────────────────────────────
-  const isSpeechSupported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  // Must start false so server and client render identically on first paint.
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  useEffect(() => {
+    setIsSpeechSupported(
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+    );
+  }, []);
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();

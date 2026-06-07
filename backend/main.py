@@ -124,7 +124,7 @@ app.add_middleware(
     allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["POST", "GET", "OPTIONS"],
-    allow_headers=["Content-Type", "X-QuantShield-Token", "Accept", "Cache-Control"],
+    allow_headers=["Content-Type", "X-QuantShield-Token", "Accept", "Cache-Control", "Authorization"],
     expose_headers=["Content-Type", "X-Accel-Buffering"],
 )
 
@@ -257,9 +257,7 @@ async def simulate(req: SimulationRequest, request: Request, _auth=Depends(_veri
     auth.require_auth()
 
     if auth.tier == "free":
-        # Enforce 3 simulations/day hard limit server-side
-        await check_and_increment_sim_usage(auth.user_id)
-        # Free tier capped at 30 days
+        await check_and_increment_sim_usage(auth.user_id, auth.email or "")
         req.simulation_days = min(req.simulation_days, 30)
         req.n_simulations = min(req.n_simulations, 1000)
 
@@ -784,7 +782,7 @@ async def create_checkout_session(req: CheckoutRequest, request: Request):
             payment_method_types=["card"],
             line_items=[{"price": req.price_id, "quantity": 1}],
             mode="subscription",
-            customer_email=auth.user_id,   # supabase user_id used as metadata
+            customer_email=auth.email,
             metadata={"supabase_user_id": auth.user_id},
             success_url=f"{SITE_URL}/settings?payment=success",
             cancel_url=f"{SITE_URL}/settings?payment=cancel",

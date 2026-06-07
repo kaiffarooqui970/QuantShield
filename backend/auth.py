@@ -13,6 +13,16 @@ from supabase import create_client, Client
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
+# Emails and user IDs that always get enterprise tier and bypass all usage limits.
+# User ID is the reliable key — emails can change or differ across providers.
+ADMIN_EMAILS: set[str] = {
+    "kaif.farooqui10@gmail.com",
+    "kaif.is.master@gmail.com",
+}
+ADMIN_USER_IDS: set[str] = {
+    "8b9a9543-138a-4686-9fab-2a266d6a4a06",  # kaif — visible in server logs
+}
+
 _supabase: Optional[Client] = None
 
 def _get_supabase() -> Client:
@@ -35,10 +45,11 @@ def has_tier(user_tier: str, required: str) -> bool:
 # ─── Auth dependency ──────────────────────────────────────────────────────────
 
 class AuthInfo:
-    def __init__(self, user_id: Optional[str], tier: str, authenticated: bool):
+    def __init__(self, user_id: Optional[str], tier: str, authenticated: bool, email: Optional[str] = None):
         self.user_id = user_id
         self.tier = tier
         self.authenticated = authenticated
+        self.email = email
 
     def require_auth(self):
         if not self.authenticated:
@@ -80,7 +91,10 @@ async def get_auth(request: Request) -> AuthInfo:
             .execute()
         )
         tier = profile.data.get("tier", "free") if profile.data else "free"
-        return AuthInfo(user_id=user.id, tier=tier, authenticated=True)
+        # Admin override — match by email OR user ID (ID is more reliable across OAuth providers)
+        if user.email in ADMIN_EMAILS or user.id in ADMIN_USER_IDS:
+            tier = "enterprise"
+        return AuthInfo(user_id=user.id, tier=tier, authenticated=True, email=user.email)
 
     except Exception:
         return AuthInfo(user_id=None, tier="free", authenticated=False)
@@ -88,11 +102,13 @@ async def get_auth(request: Request) -> AuthInfo:
 
 # ─── Simulation usage (free tier: 3/day) ─────────────────────────────────────
 
-async def check_and_increment_sim_usage(user_id: str) -> None:
+async def check_and_increment_sim_usage(user_id: str, user_email: str = "") -> None:
     """
     For free users, enforce 3 simulations/day hard limit.
-    Raises HTTP 429 if limit exceeded.
+    Raises HTTP 429 if limit exceeded. Admin emails are exempt.
     """
+    if user_email in ADMIN_EMAILS or user_id in ADMIN_USER_IDS:
+        return  # no limits for admin
     from datetime import date
     supabase = _get_supabase()
     today = date.today().isoformat()
